@@ -69,8 +69,8 @@ Complex *H;
   // Starting row
   int rowStart; 
   int rowEnd;                         
-  int i,r,c;                              // Loop variables
-  int rc;                                 // MPI return value
+ 
+  
  
   //Message Send receive implementation details
    	int sendingCPU;                              
@@ -86,99 +86,99 @@ Complex *H;
     imageWidth = image.GetWidth();          
     imageDetails = image.GetImageData();
   
-   // allocate space for H
-    H = new Complex[(imageHeight / numberOfTasks) * imageWidth];
+   //Taking care of H memory allocation
+    H = new Complex[(imageHeight / numberOfTasks) * imageWidth]; 
  
-   // Do the 1D transform
-    rowStart = (imageHeight / numberOfTasks) * rank;
-    for (i = 0; i < imageHeight / numberOfTasks; ++i)
+  // One Dimensonial transform comes here
+    rowStart = (imageHeight / numberOfTasks)*rank;
+    int counter= imageHeight/numberOfTasks;
+    for (int i = 0; i < counter; ++i)
     {
-        Transform1D(imgdata + (imgWidth * (i + start_row)), imgWidth, H + imgWidth*i);
+        Transform1D (imageDetails + (imageWidth * (i+rowStart)),imageWidth, H+imageWidth*i);
     }
+  // In principle with the idea of distributing the task
   
-    // Create send buffers, need to be 1 row for each task, with (Height * Width)/numberOfTasks elements per message
+  
+  
     // Not using an array of Complex, but instead splitting the real and complex parts up (hence the 2 and +=2 that occurs later)
-    SendingBuffer = new double[2 * imageHeight * imageWidth / numberOfTasks];
-    msgLength = 2 * (imageHeight / numberOfTasks) * (imageWidth / numberOfTasks);
     endIndex = 0;
+	// One message is composed of Ht*Wdth/Tasks and one row will have data buffer for one task
+	msgLength = 2 * (imageHeight/numberOfTasks)*(imageWidth/numberOfTasks);
+     ReceiveBuffer = new double[2*imageHeight*imageWidth/numberOfTasks];
+	 SendingBuffer = new double[2*imageHeight*imageWidth/numberOfTasks];
 
-    // Fill the buffers and transpose at the same time:
-    for (c = 0; c < imageWidth; ++c)
+    // Calculating transpose here
+    
+    for (int column = 0; column < imageWidth; ++column)
     {
-        for (r = 0; r < imgHeight / numtasks; ++r)
+        for (int row = 0; row < imageHeight / numberOfTasks; ++row)
         {
-            sendBuff[tgt] = H[(r * imgWidth) + c].real;
-            ++tgt;
-            sendBuff[tgt] = H[(r * imgWidth) + c].imag;
-            ++tgt;
+            SendingBuffer[endIndex]= H[(row * imageWidth) + column].real;
+            ++endIndex;
+            SendingBuffer[endIndex]= H[(row * imageWidth) + column].imag;
+            ++endIndex;
         }
     }
     
     // Create receive buffer and requests
-    ReceiveBuffer = new double[2 * imageHeight*imageWidth / numberOfTasks];
-    ReceiveReqs = new MPI_Request[numberOfTasks - 1];
     SentReqs = new MPI_Request[numberOfTasks];
+    ReceiveReqs = new MPI_Request[numberOfTasks - 1];
+   
+int returnValue;
 
-    // Receive the data:
-    for(i = 0; i < (numberOfTasks - 1); ++i)
+// RECEIVE DATA-------------------------------------------------------------------
+    for(int position = 0; position < (numberOfTasks - 1); ++position)
     {
-        rc = MPI_Irecv(
-            recvBuff + i*message_length,    // Location of receive buffer
-            message_length,                 // Length of Message
-            MPI_DOUBLE,                     // Data Type
-            MPI_ANY_SOURCE,                 // Receive from any source
-            0,                              // Tag of zero
-            MPI_COMM_WORLD,                 // Communicate with all members
-            Rrequests+i);                   // Requests array
+        returnValue = MPI_Irecv(ReceiveBuffer + position* msgLength, msgLength, MPI_DOUBLE, MPI_ANY_SOURCE,0,MPI_COMM_WORLD,ReceiveReqs+position);
     }
 
-    // Send the necessary data:
-    for(i = 0; i < numberOfTasks; ++i)
+
+//SENDING DATA---------------------------------------------------------------------
+    
+	for(int position = 0; position < numberOfTasks; ++position)
     {
-        if (i != rank) {
-            rc = MPI_Isend(
-                sendBuff + i*message_length,// Location of send buffer
-                message_length,             // Length of Message
-                MPI_DOUBLE,                 // Data Type
-                i,                          // Destination rank
-                0,                          // Tag of zero
-                MPI_COMM_WORLD,             // Communicate with all members
-                Srequests+i);               // Send array
+        if (position != rank) 
+		{
+            returnValue = MPI_Isend(SendingBuffer + position*msgLength, msgLength, MPI_DOUBLE,position, 0,MPI_COMM_WORLD,SentReqs+position);   
         }
     }
 
     // Get the data from me to myself instead of using MPI
     startIndex = msgLength * rank;
-    for(r = rank * imageHeight / numberOfTasks; r < (rank + 1) * imageHeight / numberOfTasks; ++r)
+    
+    for(int row = rank *imageHeight/numberOfTasks; row <(rank + 1)* imageHeight/numberOfTasks; ++row)
     {
-        for(c = rank * imgWidth / numtasks; c < (rank + 1)*imgWidth / numtasks; ++c)
+        for(int column = rank * imageWidth / numberOfTasks; column < (rank + 1)*imageWidth / numberOfTasks; ++column)
         {
-            imgdata[(r * imgWidth) + c] = Complex(sendBuff[source], sendBuff[source + 1]);
-            source += 2;
+            imageDetails[(row * imageWidth) + column] = Complex(SendingBuffer[startIndex], SendingBuffer[startIndex + 1]);
+            startIndex += 2;
         }
     }
   
     // Read all the sent data
-    for(i = 0; i < numberOfTasks - 1; ++i)
+    for(int i = 0; i < numberOfTasks - 1; ++i)
     {
-        MPI_Wait(Rrequests+i, &message_status);
-        sender = message_status.MPI_SOURCE;
-        source = message_length*i;
-        for(r = rank * imgHeight/numtasks; r < (rank + 1) * imgHeight / numtasks; ++r )
+        MPI_Wait(ReceiveReqs+i, &message_status);
+        startIndex = i*msgLength;
+        sendingCPU = message_status.MPI_SOURCE;
+        
+        
+        
+        for(int row = rank * imageHeight/numberOfTasks; row < (rank + 1) * imageHeight / numberOfTasks; ++row )
         {
-            for(c = sender * imgWidth / numtasks; c < (sender + 1) * imgWidth / numtasks; ++c)
+            for(int column = sendingCPU * imageWidth / numberOfTasks; column < (sendingCPU + 1) * imageWidth / numberOfTasks; ++column)
             {
-                imgdata[(r * imgWidth) + c] = Complex(recvBuff[source], recvBuff[source + 1]);
-                source += 2;
+                imageDetails[(row * imageWidth) + column] = Complex(ReceiveBuffer[startIndex],ReceiveBuffer[startIndex + 1]);
+                startIndex += 2;
             }
         }
     }
 
     // Do the transform:
     rowStart = (imageHeight / numberOfTasks) * rank;
-    for (i = 0; i < imageHeight / numberOfTasks; ++i)
+    for (int j = 0; j < imageHeight / numberOfTasks; ++j)
     {
-        Transform1D(imgdata + (imgWidth * (i + start_row)), imgWidth, H + imgWidth * i);
+        Transform1D (imageDetails + (imageWidth*(rowStart+j)), imageWidth, H+j*imageWidth);
     }
   
     // free up the buffer and request memory
@@ -188,87 +188,84 @@ Complex *H;
     delete[] ReceiveReqs;
   
     // Send all the data back to rank zero:
-    msgLength = 2 * imageWidth * imageHeight / numberOfTasks;
-
-    // If I'm rank zero:
+    msgLength = 2 * imageWidth *imageHeight/numberOfTasks;
+//RANK ZERO OPERATIONS COME HERE!-------------------------------------------------------
+    
     if (rank == 0)
     {
+    	 startIndex = 0;
         // Create receive buffer and Requests
-        recvBuff = new double[message_length * (numtasks)];
-        Rrequests = new MPI_Request[numtasks - 1];
+        ReceiveBuffer = new double[msgLength * (numberOfTasks)];
+        ReceiveReqs = new MPI_Request[numberOfTasks - 1];
 
-        // Recieve data:
-        for(i = 0; i < numtasks - 1; ++i)
+ 
+        for(int i = 0; i < (numberOfTasks - 1); ++i)
         {
-            rc = MPI_Irecv(recvBuff + i * message_length, message_length,  MPI_DOUBLE, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, Rrequests + i);
+            returnValue = MPI_Irecv(ReceiveBuffer + msgLength*i,msgLength,MPI_DOUBLE,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,i+ReceiveReqs);
         }
-        // fill the data I should send to myself rather than use a message
-        source = 0;
-        for(c = 0; c < imgWidth / numtasks; ++c)
+        for(int column = 0; column <imageWidth / numberOfTasks; ++column)
         {
-            for(r = 0; r < imgHeight; ++r)
+            for(int row = 0; row < imageHeight; ++row)
             {
-                imgdata[r * imgWidth + c] = H[source];
-                ++source;
+                imageDetails[imageWidth*row + column] = H[startIndex];
+                ++startIndex;
             }
         }
 
         // read the recieve data
-        for(i = 0; i < numtasks - 1; ++i)
+        for(int index = 0; index < numberOfTasks-1; ++index)
         {
-            MPI_Wait(Rrequests + i, &message_status);
-            sender = message_status.MPI_SOURCE;
-            source = message_length * i;
-            for(c = sender * imgWidth / numtasks; c < (sender + 1) * imgWidth / numtasks; ++c)
+            MPI_Wait(ReceiveReqs + index, &message_status);
+            
+            sendingCPU = message_status.MPI_SOURCE;
+            
+            startIndex = msgLength * index;
+            
+            for(int column = sendingCPU * imageWidth / numberOfTasks; column < (sendingCPU + 1) * imageWidth / numberOfTasks; ++column)
             {
-                for(r = 0; r < imgHeight; ++r)
+                   for(int row = 0; row < imageHeight; ++row)
                 {
-                    imgdata[r * imgWidth + c] = Complex(recvBuff[source], recvBuff[source + 1]);
-                    source += 2;
+                    imageDetails[row * imageWidth + column] = Complex(ReceiveBuffer[startIndex], ReceiveBuffer[startIndex + 1]);
+                    startIndex += 2;
                 }
             }
         }
   
         // Delete/free data:
-        delete[] Rrequests;
-        delete[] recvBuff;
+        delete[] ReceiveReqs;
+        delete[] ReceiveBuffer;
     }
 
-    // If I'm not node zero:
+// FOR ALL OTHER NODES----------------------------------------------------------------------------------
     else
     {
-        // Create send buffer:
-        sendBuff = new double[message_length];
-        tgt = 0;
+        endIndex = 0;
+		SendingBuffer = new double[msgLength];
 
-        // Fill up the send buffer with data:
-        for(i = 0; i < imgWidth * imgHeight / numtasks; ++i)
+ //Buffer it first and then send the  data across
+        for(int i = 0; i < imageHeight*imageWidth/numberOfTasks; ++i)
         {
-            sendBuff[tgt] = H[i].real;
-            ++tgt;
-            sendBuff[tgt] = H[i].imag;
-            ++tgt;
+            SendingBuffer[endIndex] = H[i].real;
+            ++endIndex;
+            SendingBuffer[endIndex] = H[i].imag;
+            ++endIndex;
         }
-        // Send the data:
-        Srequests = new MPI_Request[0];
-        rc = MPI_Isend(sendBuff, message_length, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, Srequests);
-        MPI_Wait(Srequests, &message_status);
 
-        // Delete/free data:
-        delete[] sendBuff;
-        delete[] Srequests;
+        SentReqs = new MPI_Request[0];
+        returnValue = MPI_Isend(SendingBuffer, msgLength, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, SentReqs);
+        MPI_Wait(SentReqs, &message_status);
+
+//MEMORY MANAGEMENT---------------------------------------------------
+        delete[] SendingBuffer;
+        delete[] SentReqs;
     }
-
-    // Delete the H array:
-    delete[] H;
-
-    // Save the image data into the file Tower=DFT2D.txt:
-    if(rank == 0)
-    {
-        image.SaveImageData("Tower-DFT2D.txt", imgdata, imgWidth, imgHeight);
+      delete[] H;
+  //For Node One, final task of saving the output comes here-------------------------    
+    if(rank == 0){
+        image.SaveImageData("AishTowerOutput.txt", imageDetails, imageWidth, imageHeight);
     }
-} // End Transform2D
-
+ }
+// 2DTranform ends here
 
 void Transform1D(Complex* h, int w, Complex* H)
 {
@@ -294,25 +291,22 @@ void Transform1D(Complex* h, int w, Complex* H)
 	
 }
 
-int main(int argc, char** argv)
-{
-  string fn("Tower.txt"); // default file name
-  if (argc > 1) fn = string(argv[1]);  // if name specified on cmd line
-  Transform2D(fn.c_str()); // Perform the transform.
-}  
   
 int main(int argc, char** argv)
 {
-	int rc = MPI_Init(&argc,&argv);
-	if (rc != MPI_SUCCESS) {
-		printf ("Error starting MPI program. Terminating.\n");
-		MPI_Abort(MPI_COMM_WORLD, rc);
+	int returnValue = MPI_Init(&argc,&argv);
+	if (returnValue != MPI_SUCCESS) 
+	{
+		printf ("Error initiating the MPI pgm. Mission aborted..\n");
+		MPI_Abort(MPI_COMM_WORLD, returnValue);
 	}
 
 	string fn("Tower.txt"); // default file name
+	MPI_Init(&argc, &argv);   
 	if (argc > 1) fn = string(argv[1]);  // if name specified on cmd line
 	Transform2D(fn.c_str()); // Perform the transform.
-	return 0;
+    MPI_Finalize(); 
+    return 0;
 }  
 
 
