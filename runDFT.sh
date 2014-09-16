@@ -2,7 +2,7 @@
 #PBS -q class
 #PBS -l nodes=2:sixcore
 #PBS -l walltime=00:10:00
-#PBS -N Riley
+#PBS -N Nair
 # The below chnages the working directory to the location of
 # your testmpi program
 cd FourierTransform2D

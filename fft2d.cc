@@ -11,13 +11,35 @@
 #include <signal.h>
 #include <math.h>
 #include <mpi.h>
-
+#include <stdlib.h>
 #include "Complex.h"
 #include "InputImage.h"
 
 using namespace std;
 
-
+void Transform1D(Complex* h, int w, Complex* H)
+{
+  // Implement a simple 1-d DFT using the double summation equation
+  // given in the assignment handout.  h is the time-domain input
+  // data, w is the width (N), and H is the output array.
+    
+	Complex partialSum ;
+    Complex matrixWeight;
+    
+    // Calculation of FFT
+    for(int i = 0; i < w; ++i)
+    {
+        partialSum = Complex(0,0);
+        
+        for(int k = 0; k < w; ++k)
+        {
+            matrixWeight = Complex(cos(2 * M_PI * i * k/w), -sin(2 * M_PI * i * k/w));
+            partialSum  = partialSum+ matrixWeight * h[k];
+        }
+        H[i] = partialSum;
+    }
+	
+}
 void Transform2D(const char* inputFN) 
 { 
 // Do the 2D transform here.
@@ -130,7 +152,16 @@ int returnValue;
     for(int position = 0; position < (numberOfTasks - 1); ++position)
     {
         returnValue = MPI_Irecv(ReceiveBuffer + position* msgLength, msgLength, MPI_DOUBLE, MPI_ANY_SOURCE,0,MPI_COMM_WORLD,ReceiveReqs+position);
-    }
+    
+	if (returnValue != MPI_SUCCESS)
+			{
+				cout << "Rank " << rank
+						<< " send failed, returnValue " << returnValue << endl;
+				MPI_Finalize();
+				exit(1);
+			}
+			
+			}
 
 
 //SENDING DATA---------------------------------------------------------------------
@@ -140,7 +171,16 @@ int returnValue;
         if (position != rank) 
 		{
             returnValue = MPI_Isend(SendingBuffer + position*msgLength, msgLength, MPI_DOUBLE,position, 0,MPI_COMM_WORLD,SentReqs+position);   
-        }
+            
+			if (returnValue != MPI_SUCCESS)
+			{
+				cout << "Rank " << rank
+						<< " send failed, returnValue " << returnValue << endl;
+				MPI_Finalize();
+				exit(1);
+			}
+			
+			 }
     }
 
     // Get the data from me to myself instead of using MPI
@@ -202,7 +242,14 @@ int returnValue;
         for(int i = 0; i < (numberOfTasks - 1); ++i)
         {
             returnValue = MPI_Irecv(ReceiveBuffer + msgLength*i,msgLength,MPI_DOUBLE,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,i+ReceiveReqs);
-        }
+           if (returnValue != MPI_SUCCESS)
+			{
+				cout << "Rank " << rank
+						<< " send failed, returnValue " << returnValue << endl;
+				MPI_Finalize();
+				exit(1);
+			}
+			 }
         for(int column = 0; column <imageWidth / numberOfTasks; ++column)
         {
             for(int row = 0; row < imageHeight; ++row)
@@ -264,32 +311,11 @@ int returnValue;
     if(rank == 0){
         image.SaveImageData("AishTowerOutput.txt", imageDetails, imageWidth, imageHeight);
     }
+    MPI_Finalize();
  }
 // 2DTranform ends here
 
-void Transform1D(Complex* h, int w, Complex* H)
-{
-  // Implement a simple 1-d DFT using the double summation equation
-  // given in the assignment handout.  h is the time-domain input
-  // data, w is the width (N), and H is the output array.
-    
-	Complex partialSum ;
-    Complex matrixWeight;
-    
-    // Calculation of FFT
-    for(int i = 0; i < w; ++i)
-    {
-        partialSum = Complex(0,0);
-        
-        for(int k = 0; k < w; ++k)
-        {
-            matrixWeight = Complex(cos(2 * M_PI * i * k/w), -sin(2 * M_PI * i * k/w));
-            partialSum + = matrixWeight * h[k];
-        }
-        H[i] = partialSum;
-    }
-	
-}
+
 
   
 int main(int argc, char** argv)
@@ -302,10 +328,10 @@ int main(int argc, char** argv)
 	}
 
 	string fn("Tower.txt"); // default file name
-	MPI_Init(&argc, &argv);   
+//	MPI_Init(&argc, &argv);   
 	if (argc > 1) fn = string(argv[1]);  // if name specified on cmd line
 	Transform2D(fn.c_str()); // Perform the transform.
-    MPI_Finalize(); 
+//    MPI_Finalize(); 
     return 0;
 }  
 
