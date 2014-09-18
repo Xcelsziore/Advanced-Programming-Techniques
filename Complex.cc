@@ -1,6 +1,6 @@
 //
 // ECE3090 Program 3 - Complex Number Class implementation
-// YOUR NAME HERE
+// Aiswaria Nair
 // PLATFORM (Windows or Linux)
 //
 
